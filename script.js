@@ -1,7 +1,121 @@
-// Data storage
-let people = JSON.parse(localStorage.getItem('dutyPeople')) || [];
-let unavailability = JSON.parse(localStorage.getItem('dutyUnavailability')) || [];
-let assignments = JSON.parse(localStorage.getItem('dutyAssignments')) || [];
+// Data storage - now using Firebase Firestore
+let people = [];
+let unavailability = [];
+let assignments = [];
+
+// Connection status tracking
+let isOnline = false;
+
+// Initialize app
+document.addEventListener('DOMContentLoaded', function() {
+    initializeFirebase();
+    setDefaultDates();
+});
+
+// Initialize Firebase connection
+async function initializeFirebase() {
+    try {
+        updateConnectionStatus('Connecting...', 'warning');
+        
+        // Test connection by trying to read from Firestore
+        await db.collection('test').doc('connection').get();
+        
+        updateConnectionStatus('Online', 'success');
+        isOnline = true;
+        
+        // Load data from Firestore
+        await loadAllData();
+        
+        // Set up real-time listeners
+        setupRealtimeListeners();
+        
+    } catch (error) {
+        console.error('Firebase connection failed:', error);
+        updateConnectionStatus('Offline', 'error');
+        isOnline = false;
+        
+        // Try to load from localStorage as fallback
+        loadFromLocalStorage();
+        showNotification('Using offline mode - data saved locally', 'warning');
+    }
+}
+
+// Update connection status display
+function updateConnectionStatus(status, type) {
+    const statusElement = document.getElementById('connectionStatus');
+    if (statusElement) {
+        statusElement.textContent = status;
+        statusElement.className = `stat-value ${type}`;
+    }
+}
+
+// Load all data from Firestore
+async function loadAllData() {
+    try {
+        // Load people
+        const peopleSnapshot = await db.collection('people').get();
+        people = peopleSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        // Load unavailability
+        const unavailabilitySnapshot = await db.collection('unavailability').get();
+        unavailability = unavailabilitySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        // Load assignments
+        const assignmentsSnapshot = await db.collection('assignments').get();
+        assignments = assignmentsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        // Migrate existing people to new format with duty counter
+        migratePeopleData();
+        
+        // Update UI
+        updatePeopleList();
+        updatePersonSelect();
+        updateUnavailabilityList();
+        updateAssignmentsList();
+        updateTotalPeopleCounter();
+        
+    } catch (error) {
+        console.error('Error loading data:', error);
+        showNotification('Error loading data from server', 'error');
+    }
+}
+
+// Load data from localStorage as fallback
+function loadFromLocalStorage() {
+    people = JSON.parse(localStorage.getItem('dutyPeople')) || [];
+    unavailability = JSON.parse(localStorage.getItem('dutyUnavailability')) || [];
+    assignments = JSON.parse(localStorage.getItem('dutyAssignments')) || [];
+    
+    migratePeopleData();
+    updatePeopleList();
+    updatePersonSelect();
+    updateUnavailabilityList();
+    updateAssignmentsList();
+    updateTotalPeopleCounter();
+}
+
+// Set up real-time listeners for data changes
+function setupRealtimeListeners() {
+    // Listen for people changes
+    db.collection('people').onSnapshot((snapshot) => {
+        people = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        updatePeopleList();
+        updatePersonSelect();
+        updateTotalPeopleCounter();
+    });
+    
+    // Listen for unavailability changes
+    db.collection('unavailability').onSnapshot((snapshot) => {
+        unavailability = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        updateUnavailabilityList();
+    });
+    
+    // Listen for assignments changes
+    db.collection('assignments').onSnapshot((snapshot) => {
+        assignments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        updateAssignmentsList();
+    });
+}
 
 // Migrate existing people to new format with duty counter
 function migratePeopleData() {
@@ -25,17 +139,6 @@ function migratePeopleData() {
     }
 }
 
-// Initialize app
-document.addEventListener('DOMContentLoaded', function() {
-    migratePeopleData();
-    updatePeopleList();
-    updatePersonSelect();
-    updateUnavailabilityList();
-    updateAssignmentsList();
-    updateTotalPeopleCounter();
-    setDefaultDates();
-});
-
 // Tab switching
 function showTab(tabName) {
     // Hide all tab contents
@@ -56,7 +159,7 @@ function showTab(tabName) {
 }
 
 // People management
-function addPerson() {
+async function addPerson() {
     const nameInput = document.getElementById('personName');
     const name = nameInput.value.trim();
     
@@ -70,35 +173,92 @@ function addPerson() {
         return;
     }
     
-    people.push({ name: name, dutyCount: 0 });
-    savePeople();
-    updatePeopleList();
-    updatePersonSelect();
-    nameInput.value = '';
-    showNotification('Person added successfully', 'success');
+    const newPerson = { name: name, dutyCount: 0 };
+    
+    try {
+        if (isOnline) {
+            // Save to Firestore
+            const docRef = await db.collection('people').add(newPerson);
+            newPerson.id = docRef.id;
+        } else {
+            // Save to localStorage as fallback
+            people.push(newPerson);
+            savePeople();
+        }
+        
+        updatePeopleList();
+        updatePersonSelect();
+        nameInput.value = '';
+        showNotification('Person added successfully', 'success');
+        
+    } catch (error) {
+        console.error('Error adding person:', error);
+        showNotification('Error adding person', 'error');
+    }
 }
 
-function removePerson(name) {
-    const index = people.findIndex(person => person.name === name);
-    if (index > -1) {
-        people.splice(index, 1);
+async function removePerson(name) {
+    const person = people.find(p => p.name === name);
+    if (!person) return;
+    
+    try {
+        if (isOnline) {
+            // Remove from Firestore
+            await db.collection('people').doc(person.id).delete();
+            
+            // Remove all unavailability records for this person
+            const unavailabilitySnapshot = await db.collection('unavailability')
+                .where('person', '==', name)
+                .get();
+            
+            const batch = db.batch();
+            unavailabilitySnapshot.docs.forEach(doc => {
+                batch.delete(doc.ref);
+            });
+            await batch.commit();
+            
+            // Remove from any assignments
+            const assignmentsSnapshot = await db.collection('assignments').get();
+            const assignmentBatch = db.batch();
+            
+            assignmentsSnapshot.docs.forEach(doc => {
+                const assignment = doc.data();
+                if (assignment.assignedPeople.includes(name)) {
+                    assignment.assignedPeople = assignment.assignedPeople.filter(person => person !== name);
+                    assignmentBatch.update(doc.ref, { assignedPeople: assignment.assignedPeople });
+                }
+            });
+            await assignmentBatch.commit();
+            
+        } else {
+            // Remove from localStorage
+            const index = people.findIndex(person => person.name === name);
+            if (index > -1) {
+                people.splice(index, 1);
+                
+                // Remove all unavailability records for this person
+                unavailability = unavailability.filter(item => item.person !== name);
+                
+                // Remove from any assignments
+                assignments.forEach(assignment => {
+                    assignment.assignedPeople = assignment.assignedPeople.filter(person => person !== name);
+                });
+                
+                savePeople();
+                saveUnavailability();
+                saveAssignments();
+            }
+        }
         
-        // Remove all unavailability records for this person
-        unavailability = unavailability.filter(item => item.person !== name);
-        
-        // Remove from any assignments
-        assignments.forEach(assignment => {
-            assignment.assignedPeople = assignment.assignedPeople.filter(person => person !== name);
-        });
-        
-        savePeople();
-        saveUnavailability();
-        saveAssignments();
         updatePeopleList();
         updatePersonSelect();
         updateUnavailabilityList();
         updateAssignmentsList();
         showNotification('Person removed successfully', 'success');
+        
+    } catch (error) {
+        console.error('Error removing person:', error);
+        showNotification('Error removing person', 'error');
     }
 }
 
@@ -149,7 +309,7 @@ function updateTotalPeopleCounter() {
 }
 
 // Availability management
-function markUnavailable() {
+async function markUnavailable() {
     const personSelect = document.getElementById('personSelect');
     const dateInput = document.getElementById('unavailableDate');
     
@@ -176,22 +336,57 @@ function markUnavailable() {
         return;
     }
     
-    unavailability.push({ person, date });
-    saveUnavailability();
-    updateUnavailabilityList();
+    const newUnavailability = { person, date };
     
-    personSelect.value = '';
-    dateInput.value = '';
-    showNotification('Unavailability marked successfully', 'success');
+    try {
+        if (isOnline) {
+            // Save to Firestore
+            const docRef = await db.collection('unavailability').add(newUnavailability);
+            newUnavailability.id = docRef.id;
+        } else {
+            // Save to localStorage
+            unavailability.push(newUnavailability);
+            saveUnavailability();
+        }
+        
+        updateUnavailabilityList();
+        personSelect.value = '';
+        dateInput.value = '';
+        showNotification('Unavailability marked successfully', 'success');
+        
+    } catch (error) {
+        console.error('Error marking unavailability:', error);
+        showNotification('Error marking unavailability', 'error');
+    }
 }
 
-function removeUnavailability(person, date) {
-    unavailability = unavailability.filter(item => 
-        !(item.person === person && item.date === date)
-    );
-    saveUnavailability();
-    updateUnavailabilityList();
-    showNotification('Unavailability removed', 'success');
+async function removeUnavailability(person, date) {
+    try {
+        if (isOnline) {
+            // Find and remove from Firestore
+            const unavailabilitySnapshot = await db.collection('unavailability')
+                .where('person', '==', person)
+                .where('date', '==', date)
+                .get();
+            
+            if (!unavailabilitySnapshot.empty) {
+                await db.collection('unavailability').doc(unavailabilitySnapshot.docs[0].id).delete();
+            }
+        } else {
+            // Remove from localStorage
+            unavailability = unavailability.filter(item => 
+                !(item.person === person && item.date === date)
+            );
+            saveUnavailability();
+        }
+        
+        updateUnavailabilityList();
+        showNotification('Unavailability removed', 'success');
+        
+    } catch (error) {
+        console.error('Error removing unavailability:', error);
+        showNotification('Error removing unavailability', 'error');
+    }
 }
 
 function updateUnavailabilityList() {
@@ -228,7 +423,7 @@ function updateUnavailabilityList() {
 }
 
 // Assignment management
-function assignDuty() {
+async function assignDuty() {
     const dateInput = document.getElementById('dutyDate');
     const date = dateInput.value;
     
@@ -242,22 +437,16 @@ function assignDuty() {
         return;
     }
     
-    const result = createSingleAssignment(date);
+    const result = await createSingleAssignment(date);
     if (result.success) {
-        savePeople();
-        saveAssignments();
-        updatePeopleList();
-        updatePersonSelect();
-        updateAssignmentsList();
         dateInput.value = getTodayString();
-        
         showNotification(result.message, 'success');
     } else {
         showNotification(result.message, 'error');
     }
 }
 
-function createSingleAssignment(date) {
+async function createSingleAssignment(date) {
     // Check if assignment already exists for this date
     const existing = assignments.find(assignment => assignment.date === date);
     if (existing) {
@@ -286,27 +475,58 @@ function createSingleAssignment(date) {
     // Smart assignment considering duty count
     const assignedPeople = selectPeopleByDutyCount(availablePeople);
     
-    // Update duty counters for assigned people
-    assignedPeople.forEach(personName => {
-        const person = people.find(p => p.name === personName);
-        if (person) {
-            person.dutyCount++;
-        }
-    });
-    
-    assignments.push({
+    const newAssignment = {
         date,
         assignedPeople,
         createdAt: new Date().toISOString()
-    });
-    
-    return {
-        success: true,
-        message: `Assigned ${assignedPeople.join(' and ')} for ${formatDate(date)}`
     };
+    
+    try {
+        if (isOnline) {
+            // Save assignment to Firestore
+            await db.collection('assignments').add(newAssignment);
+            
+            // Update duty counters for assigned people in Firestore
+            const batch = db.batch();
+            assignedPeople.forEach(personName => {
+                const person = people.find(p => p.name === personName);
+                if (person) {
+                    batch.update(db.collection('people').doc(person.id), {
+                        dutyCount: firebase.firestore.FieldValue.increment(1)
+                    });
+                }
+            });
+            await batch.commit();
+            
+        } else {
+            // Update duty counters locally
+            assignedPeople.forEach(personName => {
+                const person = people.find(p => p.name === personName);
+                if (person) {
+                    person.dutyCount++;
+                }
+            });
+            
+            assignments.push(newAssignment);
+            savePeople();
+            saveAssignments();
+        }
+        
+        return {
+            success: true,
+            message: `Assigned ${assignedPeople.join(' and ')} for ${formatDate(date)}`
+        };
+        
+    } catch (error) {
+        console.error('Error creating assignment:', error);
+        return {
+            success: false,
+            message: 'Error creating assignment'
+        };
+    }
 }
 
-function assignWeekForward() {
+async function assignWeekForward() {
     if (people.length < 2) {
         showNotification('Need at least 2 people to make assignments', 'error');
         return;
@@ -319,7 +539,7 @@ function assignWeekForward() {
     // Create assignments for 7 days starting from today
     for (let i = 0; i < 7; i++) {
         const currentDate = addDaysToDate(startDate, i);
-        const result = createSingleAssignment(currentDate);
+        const result = await createSingleAssignment(currentDate);
         
         if (result.success) {
             results.push(result.message);
@@ -327,13 +547,6 @@ function assignWeekForward() {
             errors.push(result.message);
         }
     }
-    
-    // Save all changes
-    savePeople();
-    saveAssignments();
-    updatePeopleList();
-    updatePersonSelect();
-    updateAssignmentsList();
     
     // Show summary notification
     if (results.length > 0) {
@@ -346,27 +559,55 @@ function assignWeekForward() {
     }
 }
 
-function removeAssignment(date) {
+async function removeAssignment(date) {
     // Find the assignment to be removed
     const assignmentToRemove = assignments.find(assignment => assignment.date === date);
     
-    if (assignmentToRemove) {
-        // Decrease duty counters for assigned people
-        assignmentToRemove.assignedPeople.forEach(personName => {
-            const person = people.find(p => p.name === personName);
-            if (person && person.dutyCount > 0) {
-                person.dutyCount--;
-            }
-        });
-    }
+    if (!assignmentToRemove) return;
     
-    assignments = assignments.filter(assignment => assignment.date !== date);
-    savePeople();
-    saveAssignments();
-    updatePeopleList();
-    updatePersonSelect();
-    updateAssignmentsList();
-    showNotification('Assignment removed', 'success');
+    try {
+        if (isOnline) {
+            // Remove assignment from Firestore
+            const assignmentSnapshot = await db.collection('assignments')
+                .where('date', '==', date)
+                .get();
+            
+            if (!assignmentSnapshot.empty) {
+                await db.collection('assignments').doc(assignmentSnapshot.docs[0].id).delete();
+            }
+            
+            // Decrease duty counters for assigned people in Firestore
+            const batch = db.batch();
+            assignmentToRemove.assignedPeople.forEach(personName => {
+                const person = people.find(p => p.name === personName);
+                if (person && person.dutyCount > 0) {
+                    batch.update(db.collection('people').doc(person.id), {
+                        dutyCount: firebase.firestore.FieldValue.increment(-1)
+                    });
+                }
+            });
+            await batch.commit();
+            
+        } else {
+            // Decrease duty counters locally
+            assignmentToRemove.assignedPeople.forEach(personName => {
+                const person = people.find(p => p.name === personName);
+                if (person && person.dutyCount > 0) {
+                    person.dutyCount--;
+                }
+            });
+            
+            assignments = assignments.filter(assignment => assignment.date !== date);
+            savePeople();
+            saveAssignments();
+        }
+        
+        showNotification('Assignment removed', 'success');
+        
+    } catch (error) {
+        console.error('Error removing assignment:', error);
+        showNotification('Error removing assignment', 'error');
+    }
 }
 
 function updateAssignmentsList() {
@@ -495,7 +736,7 @@ function showNotification(message, type) {
     }, 3000);
 }
 
-// Storage functions
+// Storage functions (localStorage fallback)
 function savePeople() {
     localStorage.setItem('dutyPeople', JSON.stringify(people));
 }
