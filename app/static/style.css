@@ -1,0 +1,14 @@
+body { font-family: system-ui, Arial, sans-serif; margin: 0; background: #f7f7fb; color: #111; }
+main { max-width: 900px; margin: 40px auto; padding: 0 16px; }
+h1 { font-size: 28px; margin-bottom: 16px; }
+.card { background: #fff; border-radius: 12px; padding: 16px; margin: 16px 0; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+button { background: #2f6fed; color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; }
+button:hover { background: #2459c0; }
+input[type="file"], input[type="date"] { padding: 6px; border: 1px solid #ccd; border-radius: 6px; }
+.message { background: #e7f5ea; color: #0a6c2f; padding: 10px 12px; border-radius: 8px; margin: 12px 0; }
+.hint { color: #555; font-size: 14px; }
+table { width: 100%; background: white; border-collapse: collapse; margin-top: 12px; }
+th, td { text-align: right; border-bottom: 1px solid #eee; padding: 8px; }
+thead th { background: #f0f3f9; }
+a { color: #2f6fed; text-decoration: none; margin-right: 12px; }
+.inline { display: flex; align-items: center; gap: 8px; }

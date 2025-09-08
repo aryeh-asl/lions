@@ -1,117 +1,45 @@
-# Duty Assignment App
+## מערכת גבאי – יבוא אקסל ורשימת עולים
 
-A web application for managing duty assignments and availability tracking, built with HTML, CSS, and JavaScript. **Now with online data storage using Firebase Firestore!**
+אפליקציית FastAPI פשוטה שמאפשרת:
+- העלאת קובץ אקסל קיים ליצירת/עדכון מסד נתונים (SQLite)
+- בקשת רשימת עולים לשבת נתונה (על פי פרשה) או לבעלי יום זכרון בתאריך נתון
 
-## Features
+## דרישות
+- Python 3.13
 
-- **People Management**: Add and remove people from the duty roster
-- **Availability Tracking**: Mark people as unavailable on specific dates
-- **Smart Assignment**: Automatically assign duties considering availability and duty count balance
-- **Week Forward Planning**: Create assignments for the next 7 days
-- **Real-time Updates**: Data syncs across all devices in real-time
-- **Offline Support**: Falls back to local storage when offline
+## התקנה והפעלה
 
-## Online Data Storage Setup
+1. יצירת סביבה וירטואלית (ללא ensurepip) והתקנת חבילות:
 
-This app now uses **Firebase Firestore** to store data online instead of locally. Follow these steps to set it up:
-
-### 1. Create a Firebase Project
-
-1. Go to [Firebase Console](https://console.firebase.google.com/)
-2. Click "Create a project" or select an existing project
-3. Give your project a name (e.g., "duty-assignment-app")
-4. Follow the setup wizard (you can disable Google Analytics if not needed)
-
-### 2. Enable Firestore Database
-
-1. In your Firebase project, click on "Firestore Database" in the left sidebar
-2. Click "Create database"
-3. Choose "Start in test mode" (for development - you can secure it later)
-4. Select a location close to your users
-5. Click "Done"
-
-### 3. Get Your Firebase Configuration
-
-1. In your Firebase project, click the gear icon ⚙️ next to "Project Overview"
-2. Select "Project settings"
-3. Scroll down to "Your apps" section
-4. Click the web icon (</>)
-5. Register your app with a nickname
-6. Copy the `firebaseConfig` object
-
-### 4. Update the Configuration File
-
-1. Open `firebase-config.js` in your project
-2. Replace the placeholder values with your actual Firebase configuration:
-
-```javascript
-const firebaseConfig = {
-    apiKey: "your-actual-api-key",
-    authDomain: "your-project-id.firebaseapp.com",
-    projectId: "your-project-id",
-    storageBucket: "your-project-id.appspot.com",
-    messagingSenderId: "your-messaging-sender-id",
-    appId: "your-app-id"
-};
+```bash
+python3 -m venv --without-pip venv
+curl -sS https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+./venv/bin/python get-pip.py
+./venv/bin/pip install -r requirements.txt hdate
 ```
 
-### 5. Security Rules (Optional but Recommended)
+2. הרצה מקומית:
 
-In Firestore Database → Rules, you can set up security rules:
-
-```javascript
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if true; // For development only
-    }
-  }
-}
+```bash
+./venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-**Note**: The current rules allow anyone to read/write. For production, implement proper authentication and security rules.
+בקרו ב: http://localhost:8000
 
-## Usage
+## קובץ אקסל נתמך
+עמודות מזוהות (אחת מכל קבוצה – בעברית/אנגלית):
+- שם: "שם", "שם מלא", "FullName", "full_name"
+- שם האב: "שם האב", "Father", "father_name"
+- פרשה: "פרשה", "Parasha", "parasha"
+- יום זכרון: "יום זכרון", "Yahrzeit", "yahrzeit_date"
+- הערות: "הערות", "Notes"
 
-1. **Add People**: Enter names in the People Management tab
-2. **Mark Unavailability**: Select people and dates when they're unavailable
-3. **Create Assignments**: 
-   - Single assignment: Pick a date and assign 2 people
-   - Week forward: Automatically create assignments for the next 7 days
-4. **Monitor Status**: Check the connection status in the header
+תאריך יום זכרון יכול להיות בפורמטים סטנדרטיים; ישמר כ-YYYY-MM-DD.
 
-## Data Structure
+## API
+- POST /upload – העלאת אקסל
+- GET /olim?date=YYYY-MM-DD – רשימת עולים: מי שהפרשה שלהם מתאימה לשבת הקרובה בתאריך הנתון, או שיש להם יום זכרון בתאריך זה (לפי לוח עברי)
+- GET /api/olim?date=YYYY-MM-DD – JSON
 
-The app creates three collections in Firestore:
-- **`people`**: List of people with duty counts
-- **`unavailability`**: Dates when people are unavailable
-- **`assignments`**: Duty assignments with dates and assigned people
-
-## Offline Support
-
-- When online: Data is saved to Firebase Firestore
-- When offline: Data is saved locally and syncs when connection is restored
-- Real-time listeners automatically update the UI across all devices
-
-## Browser Compatibility
-
-- Modern browsers with ES6+ support
-- Firebase requires HTTPS in production (works on localhost for development)
-
-## Troubleshooting
-
-- **Connection Issues**: Check your Firebase configuration and internet connection
-- **Data Not Syncing**: Ensure Firestore is enabled and rules allow read/write
-- **Offline Mode**: The app automatically falls back to local storage when offline
-
-## Local Development
-
-For local development without Firebase:
-1. Comment out the Firebase script tags in `index.html`
-2. Remove the `firebase-config.js` script tag
-3. The app will automatically use localStorage
-
-## License
-
-This project is open source and available under the MIT License. 
+## מסד נתונים
+SQLite בנתיב ברירת מחדל: /workspace/data/app.db (ניתן לשינוי עם DB_PATH)

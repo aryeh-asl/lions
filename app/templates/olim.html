@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>רשימת עולים</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main>
+      <h1>רשימת עולים</h1>
+      <form method="get" action="/olim" class="inline">
+        <label>תאריך: <input type="date" name="date" value="{{ date or '' }}" required /></label>
+        <button type="submit">רענן</button>
+        <a href="/">חזרה</a>
+      </form>
+
+      {% if not olim %}
+        <p>אין תוצאות.</p>
+      {% else %}
+      <table>
+        <thead>
+          <tr>
+            <th>שם מלא</th>
+            <th>שם האב</th>
+            <th>פרשה</th>
+            <th>יום זכרון</th>
+            <th>סיבה</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in olim %}
+          <tr>
+            <td>{{ row.full_name if row.get('full_name') else row['full_name'] }}</td>
+            <td>{{ row.father_name or '' }}</td>
+            <td>{{ row.parasha or '' }}</td>
+            <td>{{ row.yahrzeit_date or '' }}</td>
+            <td>{{ row.reason }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </main>
+  </body>
+  </html>
+
