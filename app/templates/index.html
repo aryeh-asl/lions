@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>מערכת גבאי - יבוא וחיפוש</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main>
+      <h1>מערכת גבאי</h1>
+
+      {% if message %}
+      <div class="message">{{ message }}</div>
+      {% endif %}
+
+      <section class="card">
+        <h2>יבוא קובץ אקסל</h2>
+        <form method="post" action="/upload" enctype="multipart/form-data">
+          <input type="file" name="file" accept=".xlsx,.xls" required />
+          <button type="submit">ייבא</button>
+        </form>
+        <p class="hint">עמודות נתמכות: "שם", "שם האב", "פרשה", "יום זכרון", "הערות"</p>
+      </section>
+
+      <section class="card">
+        <h2>רשימת עולים לשבת או יום זכרון</h2>
+        <form method="get" action="/olim">
+          <label>תאריך (YYYY-MM-DD): <input type="date" name="date" required /></label>
+          <button type="submit">חפש</button>
+        </form>
+      </section>
+    </main>
+  </body>
+  </html>
+
